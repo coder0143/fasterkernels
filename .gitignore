@@ -1,0 +1,105 @@
+# ==============================================================================
+# Python Build and Compilation Artifacts (Triton, TileLang, CuTe-DSL)
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Triton & TileLang cache directories
+.triton/
+.tilelang/
+~/.triton/
+
+# Python distribution / packaging
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ==============================================================================
+# C++ / CUDA Build Artifacts (CUDA C++, CuTe, CMake)
+# ==============================================================================
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.out
+*.o
+*.obj
+
+# Compiled Dynamic libraries
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CMake build directories
+/build/
+/build_isolated/
+/cmake-build-debug/
+/cmake-build-release/
+CMakeCache.txt
+CMakeFiles/
+CMakeCheckOutputs/
+Makefile
+cmake_install.cmake
+
+# ==============================================================================
+# GPU Profiling and Debugging Outputs
+# ==============================================================================
+# NVIDIA Nsight / NVProf reports
+*.nsys-rep
+*.sqlite
+*.ncu-rep
+*.qdrep
+*.nvvp
+
+# Inline PTX and SASS dumps (often generated during kernel tuning)
+*.ptx
+*.sass
+*.cubin
+
+# ==============================================================================
+# IDEs, Editors, and OS Files
+# ==============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
