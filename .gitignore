@@ -16,6 +16,9 @@ htmlcov/
 .tilelang/
 ~/.triton/
 
+# Profiler
+./profile/logs/*
+
 # Python distribution / packaging
 develop-eggs/
 downloads/
