@@ -19,6 +19,6 @@ with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
     
 tri_out = flash_attention_2_fwd(q, k, v)
 
-# Using atol=2e-2 due to bfloat16 accumulated rounding error variations vs native Flash
+# Using atol=1e-3 due to bfloat16 accumulated rounding error variations vs native Flash
 torch.testing.assert_close(tri_out, ref_out, atol=1e-3, rtol=1e-3)
 print("✅ Triton FA2 Kernel Precision Match Confirmed!")
