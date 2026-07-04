@@ -18,6 +18,7 @@ htmlcov/
 
 # Profiler
 logs/
+autotuner.log
 
 # Python distribution / packaging
 develop-eggs/

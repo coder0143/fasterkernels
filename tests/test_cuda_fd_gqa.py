@@ -1,6 +1,6 @@
 import torch
 import math
-from fskernels.triton.triton_gqa_decode import flash_decode_gqa_varlen
+from fskernels.cuda.cuda_fd_gqa import flash_decode_gqa_varlen
 
 device = "cuda"
 dtype = torch.float16
@@ -52,7 +52,7 @@ v_varlen = torch.randn(total_k_tokens, KV_H, D, device=device, dtype=dtype)
 sink = torch.randn(Q_H, device=device, dtype=torch.float32) * 0.1
 
 # Run Triton Decoding Kernel
-tri_out = flash_decode_gqa_varlen(q, k_varlen, v_varlen, cu_seqlens_k, s_aux=sink)
+tri_out = flash_decode_gqa_varlen(q, k_varlen, v_varlen, cu_seqlens_k, sink=sink)
 
 # Formulate padded reference tracking
 actual_max = int(k_seqlens.max())
@@ -67,4 +67,4 @@ ref_out = ref_attention(q, k_padded, v_padded, k_seqlens, Q_H, sink)
 
 # Precision confirmation check
 torch.testing.assert_close(tri_out, ref_out, atol=1e-3, rtol=1e-3)
-print("✅ Triton GQA Varlen Decode Kernel Match Confirmed!")
+print("✅ CUDA GQA Varlen Decode Kernel Match Confirmed!")
