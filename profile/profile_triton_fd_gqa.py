@@ -9,7 +9,7 @@ import tritonparse.structured_logging
 device = "cuda"
 dtype = torch.bfloat16
 
-logs_path = "./profile/logs/triton_fd_gqa"
+logs_path = "./profile/logs/triton"
 tritonparse.structured_logging.init(logs_path, enable_trace_launch=True)
 
 os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "0"
