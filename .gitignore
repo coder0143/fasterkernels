@@ -94,7 +94,7 @@ cmake_install.cmake
 *.nvvp
 
 # Inline PTX and SASS dumps (often generated during kernel tuning)
-*.ptx
+# *.ptx
 *.sass
 *.cubin
 

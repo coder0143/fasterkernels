@@ -1,3 +1,5 @@
+# Code adapted from tilelang src at: https://github.com/tile-ai/tilelang/blob/main/examples/flash_attention/example_mha_fwd_bhsd.py
+
 import torch
 import torch.nn.functional as F
 import tilelang
@@ -13,18 +15,18 @@ def get_configs():
     return [dict(zip(iter_params, values)) for values in itertools.product(*iter_params.values())]
 
 
-@autotune(configs=get_configs(), warmup=10, rep=10)
+# @autotune(configs=get_configs(), warmup=10, rep=10)
 @tilelang.jit(
     out_idx=[3],
     pass_configs={
         tilelang.PassConfigKey.TL_ENABLE_FAST_MATH: True,
     },
 )
-def flashattn(batch, heads, seq_q, seq_kv, dim, is_causal, block_M=64, block_N=64, num_stages=2, threads=128):
+def flashattn(batch, heads, seq_q, seq_kv, dim, is_causal, block_M=64, block_N=64, num_stages=2, threads=128): # best config
     scale = (1.0 / dim) ** 0.5 * 1.44269504  # log2(e)
     q_shape = [batch, heads, seq_q, dim]
     kv_shape = [batch, heads, seq_kv, dim]
-    dtype = T.float16
+    dtype = T.bfloat16
     accum_dtype = T.float32
 
     past_len = seq_kv - seq_q
@@ -102,24 +104,35 @@ def flashattn(batch, heads, seq_q, seq_kv, dim, is_causal, block_M=64, block_N=6
     return main
 
 
-# def ref_program(Q, K, V, is_causal):
-#     dim = Q.size(-1)
-#     scores = torch.einsum("bhqd,bhkd->bhqk", Q, K)
-#     scores = scores / torch.sqrt(torch.tensor(dim, dtype=scores.dtype))
-#     if is_causal:
-#         seq_q = Q.size(2)
-#         seq_kv = K.size(2)
-#         mask = torch.tril(torch.ones(seq_q, seq_kv, device=scores.device), seq_kv - seq_q)
-#         mask = mask.unsqueeze(0).unsqueeze(0)
-#         scores = scores.masked_fill(mask == 0, float("-inf"))
-#     attention_weights = F.softmax(scores, dim=-1)
-#     output = torch.einsum("bhqk,bhkd->bhqd", attention_weights, V)
-#     return output
-
 def ref_program(Q, K, V, is_causal):
-    # with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
-    #     return torch.nn.functional.scaled_dot_product_attention(Q, K, V, is_causal=is_causal)
-    return torch.nn.functional.scaled_dot_product_attention(Q, K, V, is_causal=is_causal)
+    dim = Q.size(-1)
+    scores = torch.einsum("bhqd,bhkd->bhqk", Q, K)
+    scores = scores / torch.sqrt(torch.tensor(dim, dtype=scores.dtype))
+    if is_causal:
+        seq_q = Q.size(2)
+        seq_kv = K.size(2)
+        mask = torch.tril(torch.ones(seq_q, seq_kv, device=scores.device), seq_kv - seq_q)
+        mask = mask.unsqueeze(0).unsqueeze(0)
+        scores = scores.masked_fill(mask == 0, float("-inf"))
+    attention_weights = F.softmax(scores, dim=-1)
+    output = torch.einsum("bhqk,bhkd->bhqd", attention_weights, V)
+    return output
+
+# Calling the autotuned kernel via the given wrapper
+
+def flash_attn_mha_bhsd(q, k, v, is_causal):
+    B, H, S, D = q.shape
+    kernel = flashattn(
+        batch=B, 
+        heads=H, 
+        seq_q=S,
+        seq_kv=S,
+        dim=D,
+        is_causal=is_causal,
+        # Autotuned params
+        block_M=64, block_N=64, num_stages=2, threads=128,
+    )
+    return kernel(q, k, v)
 
 
 def main(
@@ -169,7 +182,7 @@ def run_regression_perf(
     is_causal: bool = False,
     tune: bool = False,
 ):
-    kernel = flashattn(batch, heads, seq_q, seq_kv, dim, is_causal, block_M=128, block_N=128, num_stages=2, threads=256)
+    kernel = flashattn(batch, heads, seq_q, seq_kv, dim, is_causal, block_M=128, block_N=128, num_stages=2, threads=128)
     profiler = kernel.get_profiler()
     return profiler.do_bench(backend="cupti")
 
