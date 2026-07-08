@@ -65,6 +65,83 @@ for i in range(B):
 
 ref_out = ref_attention(q, k_padded, v_padded, k_seqlens, Q_H, sink)
 
+@torch.compile(fullgraph=False, dynamic=True)
+def ref_attention_varlen(
+    q: torch.Tensor,
+    k_varlen: torch.Tensor,
+    v_varlen: torch.Tensor,
+    cu_seqlens_k: torch.Tensor,
+    s_aux: torch.Tensor | None = None,
+):
+    B, Q_H, D = q.shape
+    KV_H = k_varlen.shape[1]
+    G = Q_H // KV_H
+    outputs = []
+
+    scale = 1.0 / math.sqrt(D)
+
+    for b in range(B):
+
+        start = cu_seqlens_k[b]
+        end = cu_seqlens_k[b + 1]
+
+        # [L, KV_H, D]
+        k = k_varlen[start:end]
+        v = v_varlen[start:end]
+
+        # -> [KV_H, L, D]
+        k = k.transpose(0, 1)
+        v = v.transpose(0, 1)
+
+        # expand KV heads -> Q heads
+        if G != 1:
+            k = (
+                k[:, None]
+                .expand(KV_H, G, k.shape[1], D)
+                .reshape(Q_H, k.shape[1], D)
+            )
+            v = (
+                v[:, None]
+                .expand(KV_H, G, v.shape[1], D)
+                .reshape(Q_H, v.shape[1], D)
+            )
+
+        # [Q_H, L]
+        logits = torch.matmul(
+            q[b].unsqueeze(1),
+            k.transpose(-2, -1),
+        ).squeeze(1)
+
+        logits *= scale
+
+        if s_aux is None:
+            probs = logits.softmax(dim=-1)
+        else:
+            sink = s_aux[:, None]
+
+            m = torch.maximum(
+                logits.max(dim=-1, keepdim=True).values,
+                sink,
+            )
+
+            exp_logits = torch.exp(logits - m)
+
+            probs = exp_logits / (
+                exp_logits.sum(dim=-1, keepdim=True)
+                + torch.exp(sink - m)
+            )
+
+        out = torch.matmul(
+            probs.to(v.dtype).unsqueeze(1),
+            v,
+        ).squeeze(1)
+
+        outputs.append(out)
+
+    return torch.stack(outputs, dim=0)
+
+ref_out_compiled = ref_attention_varlen(q, k_varlen, v_varlen, cu_seqlens_k, sink)
+
 # Precision confirmation check
-torch.testing.assert_close(tri_out, ref_out, atol=1e-3, rtol=1e-3)
+torch.testing.assert_close(tri_out, ref_out_compiled, atol=1e-3, rtol=1e-3)
 print("✅ Triton GQA Varlen Decode Kernel Match Confirmed!")
