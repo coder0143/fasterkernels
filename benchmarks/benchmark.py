@@ -32,6 +32,7 @@ def setup_inputs(b, q_h, kv_h, max_s, d, device="cuda", dtype=torch.float16):
     
     return q, k, v, cu_seqlens_k, sink, k_seqlens
 
+@torch.compile
 def run_sdpa_varlen(q, k_varlen, v_varlen, cu_seqlens_k, k_seqlens, q_heads, kv_heads, head_dim):
     """
     Helper to run torch SDPA by preparing a padded dense representation and mask
@@ -148,7 +149,7 @@ if __name__ == "__main__":
     parser.add_argument("--kv-heads", type=int, default=8)
     parser.add_argument("--head-dim", type=int, default=128)
     parser.add_argument("--dtype", type=str, default="fp16", choices=["fp16", "bf16"])
-    parser.add_argument("--output-dir", type=str, default="benchmark_plots")
+    parser.add_argument("--output-dir", type=str, default="./benchmarks/benchmark_plots")
     args = parser.parse_args()
 
     args.seq_lens = [512, 1024, 2048, 4096, 8192, 16384, 32768]
