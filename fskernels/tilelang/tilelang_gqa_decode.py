@@ -142,15 +142,17 @@ def flash_decode_gqa_varlen(
     B, Q_HEADS, D = q.shape
     TOTAL_K, KV_HEADS, D2 = k.shape
 
-    max_seqlen = int(
-        (cu_seqlens_k[1:] - cu_seqlens_k[:-1]).max().item()
-    )
+    # max_seqlen = int(
+    #     (cu_seqlens_k[1:] - cu_seqlens_k[:-1]).max().item()
+    # )
+
+    COMPILE_MAX_SEQ = 8192 # for no recompilation after tests
 
     kernel = flashattn(
         batch=B,
         heads=Q_HEADS,
         k_heads=KV_HEADS,
-        max_seqlen_kv=4096,
+        max_seqlen_kv=COMPILE_MAX_SEQ,
         total_seqlen_k=TOTAL_K,
         dim=D,
         has_sink=s_aux is not None,

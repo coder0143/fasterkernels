@@ -66,7 +66,7 @@ for i in range(B):
 ref_out = ref_attention(q, k_padded, v_padded, k_seqlens, Q_H, sink)
 
 @torch.compile(fullgraph=False, dynamic=True)
-def ref_attention_varlen(
+def ref_attention_compiled(
     q: torch.Tensor,
     k_varlen: torch.Tensor,
     v_varlen: torch.Tensor,
@@ -140,7 +140,7 @@ def ref_attention_varlen(
 
     return torch.stack(outputs, dim=0)
 
-ref_out_compiled = ref_attention_varlen(q, k_varlen, v_varlen, cu_seqlens_k, sink)
+ref_out_compiled = ref_attention_compiled(q, k_varlen, v_varlen, cu_seqlens_k, sink)
 
 # Precision confirmation check
 torch.testing.assert_close(tri_out, ref_out_compiled, atol=1e-3, rtol=1e-3)
