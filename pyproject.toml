@@ -34,7 +34,7 @@ classifiers = [
 dependencies = [
     "torch>=2.8.0",
     "triton>=3.4.0",
-    # tilelang is required for the TileLang implementations
+    "tilelang>=0.1.8"
 ]
 
 [project.optional-dependencies]
