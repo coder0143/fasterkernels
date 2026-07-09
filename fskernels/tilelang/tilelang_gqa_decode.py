@@ -171,9 +171,6 @@ def flash_decode_gqa_varlen(
 
     return output
 
-
-
-
 def ref_attention(q, k, v, k_seqlens, q_heads, sink=None):
     """
     Compute reference attention output and weights.

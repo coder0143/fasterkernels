@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fasterkernels"
+version = "0.1.0"
+description = "High-performance FlashAttention-2 and Flash Decoding (GQA + varlen) kernels implemented in Triton, TileLang, and CUDA"
+readme = "Readme.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+keywords = [
+    "flashattention",
+    "flashdecoding",
+    "triton",
+    "cuda",
+    "tilelang",
+    "gqa",
+    "attention-kernels",
+    "pytorch",
+    "llm-inference"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "torch>=2.8.0",
+    "triton>=3.4.0",
+    # tilelang is required for the TileLang implementations
+]
+
+[project.optional-dependencies]
+benchmarks = [
+    "pandas",
+    "matplotlib",
+    "seaborn",
+]
+profile = [
+    # tritonparse is used by the Triton IR profiling scripts
+    # "tritonparse"
+]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["fskernels*"]
+
+[tool.setuptools.package-data]
+fskernels = ["cuda/*.cpp", "cuda/*.cu"]
