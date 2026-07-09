@@ -88,7 +88,7 @@ pip install -e ".[dev]"
 ### 1. Flash Decoding with GQA and Varlen (Triton)
 ```python
 import torch
-from fskernels.triton.triton_gqa_decode import flash_decode_gqa_varlen
+from fasterkernels.fskernels.triton.triton_gqa_decode import flash_decode_gqa_varlen
 
 # Batch setup: 4 requests, Q Head=32, KV Head=8, Head Dim=128
 B, Q_H, KV_H, D = 4, 32, 8, 128
@@ -115,7 +115,7 @@ print("Output shape:", output.shape) # Expected: [4, 32, 128]
 ### 2. FlashAttention-2 Prefill (TileLang)
 ```python
 import torch
-from fskernels.tilelang.tilelang_fa2 import flash_attn_mha_bhsd
+from fasterkernels.fskernels.tilelang.tilelang_fa2 import flash_attn_mha_bhsd
 
 # Shape setup: [Batch, Heads, SeqLen, HeadDim]
 q = torch.randn(4, 16, 4096, 128, dtype=torch.bfloat16, device="cuda")
