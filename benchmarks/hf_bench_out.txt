@@ -1,0 +1,23 @@
+⚡ ~/hf_triton python better_compare.py 
+==========================================================
+Initializing Framework & Loading Architecture: Qwen/Qwen3-4B
+==========================================================
+Loading weights: 100%|████████████████████████████████████████████████████████████████████████████████████████| 398/398 [03:17<00:00,  2.02it/s]
+
+[Baseline] Populating 800 tokens of context memory history...
+[Baseline] Timing 1000 steps of sequential token decode...
+-> HF Native Pipeline Performance: 16.79 tokens/sec (Completed in 59.548s)
+
+==========================================================
+Injecting Zero-Allocation Custom Triton Flash Decoding Patcher
+==========================================================
+[Triton] Re-populating 800 tokens of context memory history...
+[Triton] Timing 1000 steps of sequential token decode...
+-> Triton Custom Kernel Performance: 18.64 tokens/sec (Completed in 53.660s)
+
+==========================================================
+Final Performance Analysis Metrics
+==========================================================
+Target Memory Depth Context Size : 800 tokens
+Measured Speedup Multiplier     : 1.1097x
+🎉 Success! Your hardcoded Triton configuration scales out efficiently under high load.
