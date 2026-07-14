@@ -2,7 +2,7 @@
 
 A collection of open, highly-optimized attention and decoding kernels for AI inference implemented using **Triton**, **TileLang**, and **CUDA / C++**. 
 
-This repository targets next-generation LLM inference architectures, showcasing optimizations for **FlashAttention-2** (prefill) and **Flash Decoding** (GQA + varlen + attention sinks) on modern NVIDIA GPU architectures (e.g. NVIDIA L4 / Ada Lovelace).
+This repository targets next-generation LLM inference architectures, showcasing optimizations for **FlashAttention-2** (prefill) and **Flash Decoding** (GQA + varlen + attention sinks) on modern NVIDIA GPU architectures (e.g. NVIDIA L4 / Ada Lovelace). Direct support for **Huggingface 🤗** models using GQA with dynamic cache.
 
 ---
 
