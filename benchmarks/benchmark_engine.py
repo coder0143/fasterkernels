@@ -1,21 +1,19 @@
 """
-Benchmarks five decode strategies for Qwen3-8B-FP8 on L4:
+Benchmarks four decode strategies for Qwen3-8B-FP8 on L4:
 
 1. Native HF           — model.generate(), eager sdpa, DynamicCache
 2. Triton attn eager   — our Triton kernel, Python loop, DynamicCache
 3. CUDA graph          — Triton kernel, graphed decode, CUDAGraphCache
-4. Speculative decode  — CUDA-graph target + Qwen3-0.6B draft (γ=5)
-5. Paged batch=4       — 4 concurrent seqs, paged attention, throughput
+4. Paged batch=4       — 4 concurrent seqs, throughput benchmark
 
 Run on the HPC cluster:
     python benchmarks/benchmark_engine.py
 
-Expected approximate results on L4:
-    Native HF       :   ~5.8 tok/s  |  ~172 ms/tok
-    Triton eager    :   ~8-12 tok/s  |  ~85-125 ms/tok  (kills attn overhead)
-    CUDA graph      :  ~25-45 tok/s  |  ~22-40 ms/tok   (kills Python loop)
-    Speculative     :  ~55-90 tok/s  |  ~11-18 ms/tok   (reduces target calls)
-    Paged batch=4   : ~90-160 tok/s  system            (multi-req throughput)
+Measured results on L4:
+    Native HF       :   ~5.80 tok/s  |  ~172.45 ms/tok
+    Triton eager    :   ~5.92 tok/s  |  ~168.78 ms/tok
+    CUDA graph      :  ~22.33 tok/s  |  ~44.79 ms/tok
+    Paged batch=4   :  ~99.95 tok/s  |  ~40.02 ms/tok (system throughput)
 """
 
 import os
@@ -133,29 +131,7 @@ def bench_cuda_graph(model, tok) -> dict:
             "ms_tok": elapsed * 1000 / res["new_tokens"]}
 
 
-# ---------------------------------------------------------------------------
-# 4. Speculative decoding (target: graphed, draft: Qwen3-0.6B)
-# ---------------------------------------------------------------------------
-def bench_speculative(model, tok) -> dict:
-    print("\n[4/5] Speculative (γ=5)  …")
-    from fskernels.engine import SpeculativeEngine
 
-    draft = load_draft()
-    engine = SpeculativeEngine(model, draft, tok, gamma=5)
-
-    # Warmup
-    _ = engine.generate(PROMPT, max_new_tokens=WARMUP_TOK, temperature=TEMPERATURE)
-    torch.cuda.synchronize()
-
-    t0 = time.perf_counter()
-    res = engine.generate(PROMPT, max_new_tokens=BENCH_TOK, temperature=TEMPERATURE)
-    torch.cuda.synchronize()
-    elapsed = time.perf_counter() - t0
-
-    extra = f"  α={res.get('acceptance_rate', 0):.2f}"
-    return {"name": f"Speculative{extra}", "n": res["new_tokens"], "elapsed": elapsed,
-            "tok_s": res["new_tokens"] / elapsed,
-            "ms_tok": elapsed * 1000 / res["new_tokens"]}
 
 
 # ---------------------------------------------------------------------------
@@ -233,11 +209,6 @@ def main():
     results.append(bench_native_hf(model, tok))
     results.append(bench_triton_eager(model, tok))
     results.append(bench_cuda_graph(model, tok))
-
-    try:
-        results.append(bench_speculative(model, tok))
-    except Exception as e:
-        print(f"  [skip speculative] {e}")
 
     try:
         results.append(bench_paged_batch(model, tok))

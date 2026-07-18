@@ -12,7 +12,7 @@ from fskernels.engine import sample_token
 
 # Global paged cache instance for the demo
 _DEMO_PAGED_CACHE: Optional[PagedKVCache] = None
-_DEMO_SEQ_ID: int = 0
+_DEMO_SEQ_IDS: list = []
 
 
 def custom_paged_attention_forward(
@@ -25,7 +25,7 @@ def custom_paged_attention_forward(
     dropout: float = 0.0,
     **kwargs
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-    global _DEMO_PAGED_CACHE, _DEMO_SEQ_ID
+    global _DEMO_PAGED_CACHE, _DEMO_SEQ_IDS
 
     bsz, q_heads, q_len, head_dim = query_states.shape
     past_key_values = kwargs.get("past_key_values", None)
@@ -34,12 +34,13 @@ def custom_paged_attention_forward(
     if past_key_values is not None and q_len == 1 and _DEMO_PAGED_CACHE is not None:
         layer_idx = getattr(module, "layer_idx", 0)
 
-        # 1. Append only the last token projection to the paged block allocator
-        _DEMO_PAGED_CACHE.append_kv(_DEMO_SEQ_ID, layer_idx, key_states[:, :, -1:, :], value_states[:, :, -1:, :])
+        # 1. Append only the last token projection to the paged block allocator for all sequences in the batch
+        for i in range(bsz):
+            _DEMO_PAGED_CACHE.append_kv(_DEMO_SEQ_IDS[i], layer_idx, key_states[i:i+1, :, -1:, :], value_states[i:i+1, :, -1:, :])
 
         # 2. Get block mapping and sequence lengths for Triton paged decode kernel
-        block_table = _DEMO_PAGED_CACHE.get_block_table_tensor([_DEMO_SEQ_ID])
-        seq_lens = _DEMO_PAGED_CACHE.get_seq_lens_tensor([_DEMO_SEQ_ID])
+        block_table = _DEMO_PAGED_CACHE.get_block_table_tensor(_DEMO_SEQ_IDS)
+        seq_lens = _DEMO_PAGED_CACHE.get_seq_lens_tensor(_DEMO_SEQ_IDS)
 
         # 3. Execute paged decode attention kernel
         q_2d = query_states.squeeze(2)  # [B, Q_H, D]
@@ -61,13 +62,17 @@ def custom_paged_attention_forward(
 
 
 def main():
-    global _DEMO_PAGED_CACHE, _DEMO_SEQ_ID
+    global _DEMO_PAGED_CACHE, _DEMO_SEQ_IDS
 
     # Patch the model's eager attention implementation
     qwen3_mod.eager_attention_forward = custom_paged_attention_forward
 
     model_card = "Qwen/Qwen3-8B-FP8"
     device = "cuda"
+
+    # Configure batch size: 1 for single prompt response, 4 for throughput measurement
+    # You can change this to 4 to see system throughput scaling up!
+    BATCH_SIZE = 1
 
     print(f"Loading tokenizer & model {model_card} …")
     tokenizer = AutoTokenizer.from_pretrained(model_card)
@@ -82,15 +87,17 @@ def main():
     _DEMO_PAGED_CACHE = PagedKVCache.from_config(
         model.config,
         num_pages=2048,
-        max_seqs=4,
+        max_seqs=8,
         max_blocks_per_seq=512,
         device=device,
     )
-    _DEMO_SEQ_ID = _DEMO_PAGED_CACHE.allocate_sequence()
+    _DEMO_SEQ_IDS = [_DEMO_PAGED_CACHE.allocate_sequence() for _ in range(BATCH_SIZE)]
 
     prompt = "Explain the hardware roofline constraints of custom CUDA attention kernels in detail:"
     print(f"\nPrompt: {prompt}")
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    print(f"Batch Size: {BATCH_SIZE}")
+
+    inputs = tokenizer([prompt] * BATCH_SIZE, return_tensors="pt").to(device)
     input_ids = inputs["input_ids"]
     bsz, prefill_len = input_ids.shape
 
@@ -111,9 +118,10 @@ def main():
         # Retrieve computed prefill key/value states from Hugging Face's cache
         from fskernels.engine.cuda_graph_runner import get_kv_from_hf_cache
         k, v = get_kv_from_hf_cache(dyn_cache, li)
-        # Append each token's prefill projection to the paged cache
-        for t in range(prefill_len):
-            _DEMO_PAGED_CACHE.append_kv(_DEMO_SEQ_ID, li, k[:, :, t:t+1, :], v[:, :, t:t+1, :])
+        # Append each sequence's prefill projection to the paged cache
+        for i in range(BATCH_SIZE):
+            for t in range(prefill_len):
+                _DEMO_PAGED_CACHE.append_kv(_DEMO_SEQ_IDS[i], li, k[i:i+1, :, t:t+1, :], v[i:i+1, :, t:t+1, :])
 
     # 3. Autoregressive decode loop
     next_tok = sample_token(out.logits[:, -1, :], temperature=0.7)
@@ -137,25 +145,28 @@ def main():
         next_tok = sample_token(out.logits[:, -1, :], temperature=0.7)
         generated.append(next_tok)
 
-        if int(next_tok.item()) in {tokenizer.eos_token_id}:
+        if int(next_tok[0].item()) in {tokenizer.eos_token_id}:
             break
 
     elapsed = time.perf_counter() - t0
-    n = len(generated)
+    n_tokens = len(generated) * BATCH_SIZE
 
     # Decode and print output
     decoded_text = tokenizer.decode(torch.cat(generated, dim=-1)[0], skip_special_tokens=True)
     print(f"\nAnswer:\n{decoded_text}")
 
     print("\n" + "=" * 50)
-    print(f"Tokens Generated : {n}")
+    print(f"Batch Size       : {BATCH_SIZE}")
+    print(f"Tokens/Seq Gen   : {len(generated)}")
+    print(f"Total Tokens Gen : {n_tokens}")
     print(f"Time Taken       : {elapsed:.2f} seconds")
-    print(f"Throughput       : {n / elapsed:.2f} tokens/sec")
+    print(f"System Throughput: {n_tokens / elapsed:.2f} tokens/sec")
     print(f"Paged cache status: {_DEMO_PAGED_CACHE}")
     print("=" * 50)
 
     # Cleanup
-    _DEMO_PAGED_CACHE.free_sequence(_DEMO_SEQ_ID)
+    for s_id in _DEMO_SEQ_IDS:
+        _DEMO_PAGED_CACHE.free_sequence(s_id)
 
 
 if __name__ == "__main__":
