@@ -94,8 +94,9 @@ def _flash_decode_gqa_hf_dense_kernel(
 
         w_l_ptrs = Gl_L_Buf + (bid * NUM_Q_HEADS * NUM_SPLITS) + (offs_h * NUM_SPLITS) + split_id
         w_m_ptrs = Gl_M_Buf + (bid * NUM_Q_HEADS * NUM_SPLITS) + (offs_h * NUM_SPLITS) + split_id
-        tl.store(w_l_ptrs, l_i, mask=(offs_h < NUM_Q_HEADS))
-        tl.store(w_m_ptrs, m_i, mask=(offs_h < NUM_Q_HEADS))
+        head_mask = (offs_h < (start_q_head + GROUP_SIZE)) & (offs_h < NUM_Q_HEADS)
+        tl.store(w_l_ptrs, l_i, mask=head_mask)
+        tl.store(w_m_ptrs, m_i, mask=head_mask)
 
 
 # Second pass — global split-KV reduction kernel
