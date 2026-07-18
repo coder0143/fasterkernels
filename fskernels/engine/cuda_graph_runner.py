@@ -44,11 +44,24 @@ class CUDAGraphCache:
     def get_seq_length(self, layer_idx: int = 0) -> int:
         return int(self._pos.item())
 
-    def load_from_dynamic(self, dyn: DynamicCache, seq_len: int):
-        """Copy prefill K/V from a DynamicCache into our static buffers."""
+    def load_from_cache(self, cache, seq_len: int):
+        """
+        Copy prefill K/V from any HF Cache type into our static buffers.
+
+        Uses cache[li] tuple indexing (stable public API across transformers ≥4.44)
+        and falls back to .key_cache / .value_cache attribute access.
+        """
         for li in range(self._num_layers):
-            self.key_cache[li, :, :, :seq_len, :]   = dyn.key_cache[li]
-            self.value_cache[li, :, :, :seq_len, :] = dyn.value_cache[li]
+            try:
+                # Primary path: cache[li] → (k, v) tuple, works for all Cache types
+                kv = cache[li]
+                k, v = kv[0], kv[1]
+            except (TypeError, KeyError):
+                # Fallback for older DynamicCache with list attributes
+                k = cache.key_cache[li]
+                v = cache.value_cache[li]
+            self.key_cache[li, :, :, :seq_len, :]   = k
+            self.value_cache[li, :, :, :seq_len, :] = v
 
 
 class CUDAGraphRunner:
@@ -97,20 +110,24 @@ class CUDAGraphRunner:
     # ------------------------------------------------------------------
     def prefill(self, input_ids: torch.Tensor) -> torch.Tensor:
         bsz, seq_len = input_ids.shape
-        dyn_cache = DynamicCache()
 
+        # Pass past_key_values=None so HF creates a fully-initialised cache
+        # internally (DynamicCache in 4.51 only sets up key_cache/value_cache
+        # when it receives the model config, which happens inside the model).
         with torch.no_grad():
             out = self.model(
                 input_ids=input_ids,
-                past_key_values=dyn_cache,
+                past_key_values=None,
                 use_cache=True,
                 logits_to_keep=1,
             )
 
+        returned_cache = out.past_key_values  # fully populated by the forward pass
+
         self.kv_cache = CUDAGraphCache(
             self.model.config, bsz, self.max_seq_len, self.device, self.model.dtype
         )
-        self.kv_cache.load_from_dynamic(dyn_cache, seq_len)
+        self.kv_cache.load_from_cache(returned_cache, seq_len)
         self._position = seq_len
 
         # Detect if the model has sliding window layers (Qwen3-8B: no)
