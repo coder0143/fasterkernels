@@ -1,6 +1,6 @@
 import torch
 import math
-from fskernels.triton.triton_gqa_decode_hf_fp8 import flash_decode_gqa_hf_fp8, quantize_to_fp8
+from fskernels.triton.triton_gqa_decode_hf_fp8 import flash_decode_gqa_hf_fp8, quantize_to_fp8, set_num_splits_fp8
 
 device = "cuda"
 dtype = torch.float16
@@ -43,6 +43,7 @@ q_fp8, sq = quantize_to_fp8(q.float())
 k_fp8, sk = quantize_to_fp8(k.float())
 v_fp8, sv = quantize_to_fp8(v.float())
 
+set_num_splits_fp8(1)
 tri_out = flash_decode_gqa_hf_fp8(q_fp8, k_fp8, v_fp8, cache_lens, sq, sk, sv, dtype)
 
 # Reference in fp16 (dequantized inputs to match kernel's effective precision)
@@ -63,6 +64,7 @@ v_long = torch.randn(B, KV_H, MAX_S_LONG, D, device=device, dtype=dtype)
 k_long_fp8, sk_l = quantize_to_fp8(k_long.float())
 v_long_fp8, sv_l = quantize_to_fp8(v_long.float())
 
+set_num_splits_fp8(8)
 tri_out_long = flash_decode_gqa_hf_fp8(q_fp8, k_long_fp8, v_long_fp8, cache_lens_long, sq, sk_l, sv_l, dtype)
 
 k_deq_long = k_long_fp8.to(torch.float32) * sk_l

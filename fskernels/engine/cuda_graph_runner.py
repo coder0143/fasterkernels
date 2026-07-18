@@ -1,5 +1,4 @@
 import torch
-from transformers import DynamicCache
 from typing import Optional
 
 
