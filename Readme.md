@@ -1,6 +1,8 @@
-# FasterKernels ⚡
+# FasterKernels ⚡ (v0.2.0)
 
 A collection of open, highly-optimized attention and decoding kernels for AI inference implemented using **Triton**, **TileLang**, and **CUDA / C++**. 
+
+Starting in **v0.2.0**, FasterKernels introduces first-class end-to-end inference engine integrations for Hugging Face models. The package now features optimized **FP8 e4m3 decoding pipelines** (tested with Qwen3-8B-FP8), custom **CUDA Graph capture runners** for zero-overhead autoregressive inference, and a dynamic **Paged Attention block allocator** (`PagedKVCache` + `paged_flash_decode`) to scale concurrent sequence throughput.
 
 This repository targets next-generation LLM inference architectures, showcasing optimizations for **FlashAttention-2** (prefill) and **Flash Decoding** (GQA + varlen + attention sinks) on modern NVIDIA GPU architectures (e.g. NVIDIA L4 / Ada Lovelace). Direct support for **Huggingface 🤗** models using GQA with dynamic cache.
 
@@ -8,6 +10,9 @@ This repository targets next-generation LLM inference architectures, showcasing 
 
 ## Key Features
 
+* **v0.2.0 Engine & FP8 Pipeline**: End-to-end inference stack supporting **FP8 (`e4m3fn`) execution paths** for quantized weights (such as Qwen3-8B-FP8) on modern datacenter GPUs (like NVIDIA L4).
+* **CUDA Graph Autoregressive Capture**: An optimized `CUDAGraphRunner` that eliminates Python interpreter latency during decode steps by compiling and replaying static execution graphs.
+* **Paged Attention KV Cache**: A fully functional `PagedKVCache` block manager (similar to vLLM's memory system) that allocates non-contiguous physical pages (size 16 tokens) mapped to logical sequences, paired with a custom Triton `paged_flash_decode` attention kernel.
 * **FlashAttention-2 (Prefill)**: Implementation of the forward pass of the FlashAttention-2 algorithm supporting causal/non-causal attention.
 * **Flash Decoding (GQA + Varlen)**: High-efficiency decoding kernels designed for Grouped Query Attention (GQA), variable sequence lengths per batch item (`varlen`), and long-context processing.
 * **Attention Sinks Support**: First-class support for attention sinks (used to keep initial token activations for long-context generation) natively integrated into the online softmax computation.
@@ -21,6 +26,7 @@ This repository targets next-generation LLM inference architectures, showcasing 
 |---|---|---|---|---|
 | **FlashAttention-2** | [triton_fa2.py](fskernels/triton/triton_fa2.py) | [tilelang_fa2.py](fskernels/tilelang/tilelang_fa2.py) | [cuda_fa2.py](fskernels/cuda/cuda_fa2.py) | Causal/Non-causal, online softmax |
 | **Flash Decoding** | [triton_gqa_decode.py](fskernels/triton/triton_gqa_decode.py) | [tilelang_gqa_decode.py](fskernels/tilelang/tilelang_gqa_decode.py) | [cuda_fd_gqa.py](fskernels/cuda/cuda_fd_gqa.py) | GQA (arbitrary group size), varlen layout, Attention Sinks (`s_aux`) |
+| **FP8 Flash Decoding** | [triton_gqa_decode_hf_fp8.py](fskernels/triton/triton_gqa_decode_hf_fp8.py) | - | - | Optimized e4m3 FP8 decode attention for quantized LLMs |
 
 ---
 
@@ -55,10 +61,23 @@ Below are benchmarking results evaluated on an **NVIDIA L4 GPU** (24GB VRAM, sm_
 | **16** | 30.008 | 46.762 | 3.110 | **3.099** | 22.181 |
 | **32** | 58.456 | 99.993 | **5.629** | 5.703 | 36.543 |
 
+### 3. End-to-End FP8 Decoding Benchmarks (Qwen3-8B-FP8 on L4)
+*System throughput and speedup measurements:*
+
+| Strategy | Throughput (tok/s) | Latency (ms/tok) | Speedup |
+|---|---|---|---|
+| **Native HF Baseline** | 5.76 | 173.56 | 1.00x |
+| **Triton Eager** | 5.86 | 170.55 | 1.02x |
+| **CUDA Graph Decode** | 22.18 | 45.08 | 3.85x |
+| **Paged Attention (Batch=4)** | 99.54 | 40.19 | 17.28x |
+
 ### Key Optimization Insights
 * **Triton/TileLang vs. PyTorch SDPA**: Triton and TileLang are **15x - 18x faster** than PyTorch SDPA at larger batch sizes and context lengths.
 * **Why is Native CUDA slower?**: The native CUDA implementation included is a template-free cooperative parallel reduction kernel. Unlike Triton and TileLang, it does not utilize specialized CUDA Tensor Cores or compiler-optimized double-buffered pipelines (`cp.async`).
 * **Attention Sinks**: Standard PyTorch SDPA cannot support attention sinks (biasing softmax by keeping initial key/value activations) without falling back to un-fused computation. Triton, TileLang, and CUDA kernels support this natively using the `s_aux` parameter.
+* **FP8 Dynamic Quantization**: Only the query (Q) tensor is dynamically quantized on-the-fly to FP8 (`e4m3fn`) during decoding. Keeping keys and values in standard precision avoids scanning the entire static KV cache for scales ($O(\text{seq\_len})$ scale estimation) at every generation step.
+* **Precise GQA Head Masking**: When writing intermediate softmax scaling factors (`l_i`, `m_i`) to the global split-KV buffers, we utilize a precise 1D boundary mask `(offs_h < (start_q_head + GROUP_SIZE)) & (offs_h < NUM_Q_HEADS)`. This prevents concurrent thread blocks processing neighboring GQA groups from overwriting each other's memory.
+* **CUDA Graph Position Replay**: To capture decoding loops inside a CUDA graph without Python interpreter overhead, we derived sequence cache indexes dynamically on the GPU using pure tensor operations from `cache_position`, avoiding all CPU-GPU synchronization blocks.
 
 ---
 
@@ -175,6 +194,18 @@ with torch.no_grad():
 print("Generated 400 tokens")
 ```
 
+### 4. Fastest FP8 Inference (CUDA Graph & Paged Attention)
+
+To execute inference at maximum speed using captured CUDA Graphs (combiling the attention path):
+```bash
+python tests/run_hf_triton_fp8_cuda_gph.py
+```
+
+To execute inference using batched Paged Attention (dynamic block allocation) for high-throughput scaling:
+```bash
+python tests/run_hf_triton_fp8_paged.py
+```
+
 ---
 
 ## Testing, Benchmarking & Profiling
@@ -182,7 +213,11 @@ print("Generated 400 tokens")
 ### Running Unit Tests
 Validate precision and correctness across all backends against PyTorch references:
 ```bash
+# Run base tests
 pytest tests/
+
+# Verify FP8 GQA decode correctness against PyTorch reference
+python tests/test_triton_gqa_decode_fp8.py
 ```
 
 ### Running Performance Benchmarks
@@ -191,6 +226,11 @@ Run sequence length and batch sweeps, generate latency plots, and output CSV met
 python benchmarks/benchmark.py --q-heads 32 --kv-heads 8 --head-dim 128 --dtype fp16
 ```
 Plots and CSV results will be saved to `benchmarks/benchmark_plots/`.
+
+To run the end-to-end decode engine benchmarking suite (Native HF, Triton Eager, CUDA Graph, Paged):
+```bash
+python benchmarks/benchmark_engine.py
+```
 
 ### Profiling Triton Kernels
 Compile lower representation code and generate performance summaries for Triton backends:

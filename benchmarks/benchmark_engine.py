@@ -16,12 +16,10 @@ Measured results on L4:
     Paged batch=4   :  ~99.95 tok/s  |  ~40.02 ms/tok (system throughput)
 """
 
-import os
-import sys
 import time
 import torch
 import torch.nn.functional as F
-from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID   = "Qwen/Qwen3-8B-FP8"
 DRAFT_ID   = "Qwen/Qwen3-0.6B"
@@ -60,7 +58,7 @@ def greedy(logits: torch.Tensor) -> torch.Tensor:
 # 1. Native HF baseline
 # ---------------------------------------------------------------------------
 def bench_native_hf(model, tok) -> dict:
-    print("\n[1/5] Native HF  …")
+    print("\n[1/4] Native HF  …")
     inputs = tok(PROMPT, return_tensors="pt").to(DEVICE)
     eos_ids = getattr(model.config, "eos_token_id", [tok.eos_token_id])
     if isinstance(eos_ids, int):
@@ -87,7 +85,7 @@ def bench_triton_eager(model, tok) -> dict:
     import transformers.models.qwen3.modeling_qwen3 as qm
     from fskernels.triton.triton_gqa_decode_hf import custom_hf_decode_attention_forward
     qm.eager_attention_forward = custom_hf_decode_attention_forward
-    print("\n[2/5] Triton eager  …")
+    print("\n[2/4] Triton eager  …")
 
     from fskernels.engine.fs_inference_engine import FsInferenceEngine
     engine = FsInferenceEngine(model, tok, patch_attention=False)  # already patched
@@ -110,7 +108,7 @@ def bench_triton_eager(model, tok) -> dict:
 # 3. CUDA graph decode
 # ---------------------------------------------------------------------------
 def bench_cuda_graph(model, tok) -> dict:
-    print("\n[3/5] CUDA graph  …")
+    print("\n[3/4] CUDA graph  …")
     from fskernels.engine import FsInferenceEngine
 
     engine = FsInferenceEngine(model, tok)
@@ -131,9 +129,6 @@ def bench_cuda_graph(model, tok) -> dict:
             "ms_tok": elapsed * 1000 / res["new_tokens"]}
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # 5. Paged attention — batched throughput demo (4 concurrent sequences)
 # ---------------------------------------------------------------------------
@@ -143,7 +138,7 @@ def bench_paged_batch(model, tok) -> dict:
     All 4 sequences share a page pool; throughput is measured as total
     tokens generated across all sequences per wall-clock second.
     """
-    print("\n[5/5] Paged batch=4  …")
+    print("\n[4/4] Paged batch=4  …")
     import transformers.models.qwen3.modeling_qwen3 as qm
     from fskernels.triton.triton_gqa_decode_hf import custom_hf_decode_attention_forward
     qm.eager_attention_forward = custom_hf_decode_attention_forward
