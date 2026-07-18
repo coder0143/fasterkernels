@@ -59,8 +59,10 @@ class FsInferenceEngine:
         max_seq_len: int = 8192,
         device: str = "cuda",
         num_splits: int = 8,
+        patch_attention: bool = True,
     ):
-        _patch_attention()
+        if patch_attention:
+            _patch_attention()
 
         self.model       = model
         self.tokenizer   = tokenizer
