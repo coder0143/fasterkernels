@@ -68,7 +68,7 @@ class SpeculativeEngine:
     ) -> "SpeculativeEngine":
         tok = AutoTokenizer.from_pretrained(target_id)
         target = AutoModelForCausalLM.from_pretrained(
-            target_id, torch_dtype="auto", device_map=device
+            target_id, dtype="auto", device_map=device
         ).eval()
         draft = AutoModelForCausalLM.from_pretrained(
             draft_id, torch_dtype=torch.bfloat16, device_map=device
@@ -140,10 +140,14 @@ class SpeculativeEngine:
                         use_cache=True,
                         logits_to_keep=1,
                     )
-                lp = F.softmax(dout.logits[:, -1, :] / temperature, dim=-1)
-                draft_probs.append(lp)
-                next_d = torch.multinomial(lp, 1)
-                draft_toks.append(next_d)
+                if temperature == 0.0:
+                    next_d = dout.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+                    draft_toks.append(next_d)
+                else:
+                    lp = F.softmax(dout.logits[:, -1, :] / temperature, dim=-1)
+                    draft_probs.append(lp)
+                    next_d = torch.multinomial(lp, 1)
+                    draft_toks.append(next_d)
                 cur_in = next_d
                 draft_pos += 1
 
@@ -170,44 +174,68 @@ class SpeculativeEngine:
             # target_runner.kv_cache._pos is now stale — the verify pass wrote
             # γ+1 slots starting at verify_pos. Advance the runner accordingly.
 
-            # target logits for positions verify_pos..verify_pos+γ (the γ+1 drafts)
             target_logits = tout.logits  # [B, γ+1, V]
-            target_probs = F.softmax(target_logits / temperature, dim=-1)
 
             # --- Rejection sampling ---
             n_accept = 0
             last_good_tok = cur_tok
-            for i in range(gamma):
-                q = target_probs[:, i, :]   # target prob at position i
-                p = draft_probs[i]          # draft prob for draft_toks[i]
-                tok_i = draft_toks[i]       # the draft token
 
-                ratio = (q.gather(1, tok_i) / (p.gather(1, tok_i) + 1e-9)).clamp(max=1.0)
-                accept = torch.rand(bsz, 1, device=self.device) < ratio
+            if temperature == 0.0:
+                for i in range(gamma):
+                    target_argmax = target_logits[:, i, :].argmax(dim=-1, keepdim=True)
+                    tok_i = draft_toks[i]
 
-                if accept.all():
-                    generated.append(tok_i)
-                    last_good_tok = tok_i
-                    n_accept += 1
-                    if int(tok_i.item()) in self.eos_ids:
+                    if (target_argmax == tok_i).all():
+                        generated.append(tok_i)
+                        last_good_tok = tok_i
+                        n_accept += 1
+                        if int(tok_i.item()) in self.eos_ids:
+                            break
+                    else:
+                        generated.append(target_argmax)
+                        last_good_tok = target_argmax
                         break
-                else:
-                    # Resample from adjusted distribution
-                    adj = (q - p).clamp(min=0)
-                    adj_sum = adj.sum(-1, keepdim=True)
-                    adj = adj / (adj_sum + 1e-9)
-                    bonus = torch.multinomial(adj, 1)
+
+                # Bonus token from target at γ+1 position (always accepted)
+                if n_accept == gamma:
+                    bonus = target_logits[:, -1, :].argmax(dim=-1, keepdim=True)
                     generated.append(bonus)
                     last_good_tok = bonus
-                    break
+                    n_accept += 1
+            else:
+                target_probs = F.softmax(target_logits / temperature, dim=-1)
+                for i in range(gamma):
+                    q = target_probs[:, i, :]   # target prob at position i
+                    p = draft_probs[i]          # draft prob for draft_toks[i]
+                    tok_i = draft_toks[i]       # the draft token
 
-            # Bonus token from target at γ+1 position (always accepted)
-            if n_accept == gamma:
-                bonus_logits = target_logits[:, -1, :]
-                bonus = sample_token(bonus_logits, temperature, top_k, top_p)
-                generated.append(bonus)
-                last_good_tok = bonus
-                n_accept += 1
+                    ratio = (q.gather(1, tok_i) / (p.gather(1, tok_i) + 1e-9)).clamp(max=1.0)
+                    accept = torch.rand(bsz, 1, device=self.device) < ratio
+
+                    if accept.all():
+                        generated.append(tok_i)
+                        last_good_tok = tok_i
+                        n_accept += 1
+                        if int(tok_i.item()) in self.eos_ids:
+                            break
+                    else:
+                        # Resample from adjusted distribution
+                        adj = (q - p).clamp(min=0)
+                        adj_sum = adj.sum(-1, keepdim=True)
+                        adj = adj / torch.clamp(adj_sum, min=1e-9)
+                        adj = torch.where(adj_sum > 1e-9, adj, q)
+                        bonus = torch.multinomial(adj, 1)
+                        generated.append(bonus)
+                        last_good_tok = bonus
+                        break
+
+                # Bonus token from target at γ+1 position (always accepted)
+                if n_accept == gamma:
+                    bonus_logits = target_logits[:, -1, :]
+                    bonus = sample_token(bonus_logits, temperature, top_k, top_p)
+                    generated.append(bonus)
+                    last_good_tok = bonus
+                    n_accept += 1
 
             n_accepted_total += n_accept
             n_rounds += 1
