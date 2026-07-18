@@ -1,7 +1,7 @@
 import time
 import torch
 import torch.nn.functional as F
-from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional, List
 
 import transformers.models.qwen3.modeling_qwen3 as qwen3_mod
@@ -243,13 +243,31 @@ class SpeculativeEngine:
         }
 
     @staticmethod
-    def _trim_dynamic_cache(cache: DynamicCache, keep_len: int) -> DynamicCache:
-        """Trim all KV caches to keep_len tokens (drop rolled-back draft tokens)."""
-        new_cache = DynamicCache()
-        for li in range(len(cache.key_cache)):
-            k = cache.key_cache[li][:, :, :keep_len, :]
-            v = cache.value_cache[li][:, :, :keep_len, :]
-            new_cache.key_cache.append(k)
-            new_cache.value_cache.append(v)
-        new_cache._seen_tokens = keep_len
-        return new_cache
+    def _trim_dynamic_cache(cache, keep_len: int):
+        """Trim KV cache to keep_len tokens (drop rolled-back draft tokens)."""
+        if hasattr(cache, "crop"):
+            cache.crop(keep_len)
+            if hasattr(cache, "_seen_tokens"):
+                cache._seen_tokens = keep_len
+            return cache
+
+        if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
+            # Fallback for old style DynamicCache
+            new_cache = type(cache)()
+            for li in range(len(cache.key_cache)):
+                k = cache.key_cache[li][:, :, :keep_len, :]
+                v = cache.value_cache[li][:, :, :keep_len, :]
+                new_cache.key_cache.append(k)
+                new_cache.value_cache.append(v)
+            new_cache._seen_tokens = keep_len
+            return new_cache
+
+        if hasattr(cache, "layers"):
+            for layer in cache.layers:
+                if hasattr(layer, "crop"):
+                    layer.crop(keep_len)
+            if hasattr(cache, "_seen_tokens"):
+                cache._seen_tokens = keep_len
+            return cache
+
+        return cache

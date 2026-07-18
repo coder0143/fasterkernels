@@ -2,6 +2,31 @@ import torch
 from typing import Optional
 
 
+def get_kv_from_hf_cache(cache, layer_idx: int):
+    """
+    Robust helper to extract key and value tensors from any HF Cache structure.
+    Handles:
+      1. Modern transformers (>=4.36+): cache.layers[layer_idx].keys / .values
+      2. Legacy/Custom caches: cache.key_cache[layer_idx] / cache.value_cache[layer_idx]
+      3. Subscriptable caches: cache[layer_idx] -> (k, v)
+    """
+    if hasattr(cache, "layers") and layer_idx < len(cache.layers):
+        layer = cache.layers[layer_idx]
+        if hasattr(layer, "keys") and hasattr(layer, "values"):
+            return layer.keys, layer.values
+
+    if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
+        return cache.key_cache[layer_idx], cache.value_cache[layer_idx]
+
+    try:
+        kv = cache[layer_idx]
+        return kv[0], kv[1]
+    except Exception:
+        pass
+
+    raise AttributeError(f"Could not extract K/V states from cache object of type {type(cache)}")
+
+
 class CUDAGraphCache:
     """
     Static KV cache with a GPU-tensor write-position for CUDA graph compatibility.
@@ -46,19 +71,9 @@ class CUDAGraphCache:
     def load_from_cache(self, cache, seq_len: int):
         """
         Copy prefill K/V from any HF Cache type into our static buffers.
-
-        Uses cache[li] tuple indexing (stable public API across transformers ≥4.44)
-        and falls back to .key_cache / .value_cache attribute access.
         """
         for li in range(self._num_layers):
-            try:
-                # Primary path: cache[li] → (k, v) tuple, works for all Cache types
-                kv = cache[li]
-                k, v = kv[0], kv[1]
-            except (TypeError, KeyError):
-                # Fallback for older DynamicCache with list attributes
-                k = cache.key_cache[li]
-                v = cache.value_cache[li]
+            k, v = get_kv_from_hf_cache(cache, li)
             self.key_cache[li, :, :, :seq_len, :]   = k
             self.value_cache[li, :, :, :seq_len, :] = v
 
