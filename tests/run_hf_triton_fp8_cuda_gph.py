@@ -29,7 +29,7 @@ print("\nGenerating with CUDA Graph decode …")
 result = engine.generate(
     prompt,
     max_new_tokens=400,
-    temperature=0.0,  # greedy
+    temperature=0.7,
     use_graph=True,
     warmup_steps=5,
 )

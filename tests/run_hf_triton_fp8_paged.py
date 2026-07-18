@@ -34,8 +34,8 @@ def custom_paged_attention_forward(
     if past_key_values is not None and q_len == 1 and _DEMO_PAGED_CACHE is not None:
         layer_idx = getattr(module, "layer_idx", 0)
 
-        # 1. Append the new K/V projection to the paged block allocator
-        _DEMO_PAGED_CACHE.append_kv(_DEMO_SEQ_ID, layer_idx, key_states, value_states)
+        # 1. Append only the last token projection to the paged block allocator
+        _DEMO_PAGED_CACHE.append_kv(_DEMO_SEQ_ID, layer_idx, key_states[:, :, -1:, :], value_states[:, :, -1:, :])
 
         # 2. Get block mapping and sequence lengths for Triton paged decode kernel
         block_table = _DEMO_PAGED_CACHE.get_block_table_tensor([_DEMO_SEQ_ID])
@@ -116,7 +116,7 @@ def main():
             _DEMO_PAGED_CACHE.append_kv(_DEMO_SEQ_ID, li, k[:, :, t:t+1, :], v[:, :, t:t+1, :])
 
     # 3. Autoregressive decode loop
-    next_tok = sample_token(out.logits[:, -1, :], temperature=0.0)  # greedy
+    next_tok = sample_token(out.logits[:, -1, :], temperature=0.7)
     generated = [next_tok]
 
     print("\nDecoding with Triton Paged attention …")
@@ -134,7 +134,7 @@ def main():
                 use_cache=True,
                 logits_to_keep=1,
             )
-        next_tok = sample_token(out.logits[:, -1, :], temperature=0.0)
+        next_tok = sample_token(out.logits[:, -1, :], temperature=0.7)
         generated.append(next_tok)
 
         if int(next_tok.item()) in {tokenizer.eos_token_id}:
