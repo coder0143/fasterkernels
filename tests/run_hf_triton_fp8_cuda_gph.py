@@ -1,6 +1,3 @@
-import os
-import sys
-import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from fskernels.engine import FsInferenceEngine
