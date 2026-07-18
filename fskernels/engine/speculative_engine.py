@@ -167,7 +167,6 @@ class SpeculativeEngine:
                     input_ids=verify_ids,
                     position_ids=verify_positions,
                     past_key_values=target_runner.kv_cache,
-                    attention_mask={"full_attention": None},
                     use_cache=True,
                     logits_to_keep=gamma + 1,
                 )
