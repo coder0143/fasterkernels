@@ -217,8 +217,8 @@ class CUDAGraphRunner:
         self._static_logits = _out.logits  # static tensor; lives in graph memory pool
         torch.cuda.synchronize()
 
-        # Advance past all warmup + capture steps
-        self._position = capture_pos + 1
+        # Reset target position back to pos0 so generation starts at the correct post-prefill index
+        self._position = pos0
 
     # ------------------------------------------------------------------
     # Step: update position buffers, replay graph, return logits
