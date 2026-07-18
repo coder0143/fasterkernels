@@ -1,6 +1,5 @@
 import torch
-from typing import Optional, Tuple
-from transformers.cache_utils import Cache
+from typing import Optional
 
 
 def get_kv_from_hf_cache(cache, layer_idx: int):
@@ -28,7 +27,7 @@ def get_kv_from_hf_cache(cache, layer_idx: int):
     raise AttributeError(f"Could not extract K/V states from cache object of type {type(cache)}")
 
 
-class CUDAGraphCache(Cache):
+class CUDAGraphCache:
     """
     Static KV cache with a GPU-tensor write-position for CUDA graph compatibility.
 
@@ -84,16 +83,6 @@ class CUDAGraphCache(Cache):
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         return int(self._pos.item())
-
-    def get_usable_length(self, seq_len: int, layer_idx: int = 0) -> int:
-        return seq_len
-
-    def get_mask_sizes(self, cache_position: torch.Tensor, *args, **kwargs) -> Tuple[int, int]:
-        mask_seq_len = int(cache_position[-1].item()) + 1
-        seen_tokens = int(self._pos.item())
-        if seen_tokens == 0:
-            return mask_seq_len, mask_seq_len
-        return mask_seq_len, seen_tokens
 
     def load_from_cache(self, cache, seq_len: int):
         """
