@@ -25,8 +25,6 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 MODEL_ID   = "Qwen/Qwen3-8B-FP8"
 DRAFT_ID   = "Qwen/Qwen3-0.6B"
 DEVICE     = "cuda"
@@ -44,7 +42,7 @@ def load_target():
     print(f"Loading target model {MODEL_ID} …")
     tok   = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, torch_dtype="auto", device_map=DEVICE
+        MODEL_ID, dtype="auto", device_map=DEVICE
     ).eval()
     return model, tok
 
@@ -52,7 +50,7 @@ def load_target():
 def load_draft(device=DEVICE):
     print(f"Loading draft model {DRAFT_ID} …")
     return AutoModelForCausalLM.from_pretrained(
-        DRAFT_ID, torch_dtype=torch.bfloat16, device_map=device
+        DRAFT_ID, dtype=torch.bfloat16, device_map=device
     ).eval()
 
 
