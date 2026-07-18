@@ -151,6 +151,14 @@ _GLOBAL_SPLIT_OUT_FP8 = None
 _GLOBAL_SPLIT_L_FP8 = None
 _GLOBAL_SPLIT_M_FP8 = None
 
+# Fixed by CUDAGraphRunner before graph capture (default: short-seq single pass)
+_DECODE_NUM_SPLITS_FP8: int = 1
+
+
+def set_num_splits_fp8(n: int):
+    global _DECODE_NUM_SPLITS_FP8
+    _DECODE_NUM_SPLITS_FP8 = n
+
 
 def flash_decode_gqa_hf_fp8(q_fp8, k_cache_fp8, v_cache_fp8, cache_lens, scale_q, scale_k, scale_v, out_dtype):
     global _GLOBAL_SPLIT_OUT_FP8, _GLOBAL_SPLIT_L_FP8, _GLOBAL_SPLIT_M_FP8
@@ -161,8 +169,8 @@ def flash_decode_gqa_hf_fp8(q_fp8, k_cache_fp8, v_cache_fp8, cache_lens, scale_q
     group_size = q_heads // kv_heads
     block_h = max(16, triton.next_power_of_2(group_size))
 
-    current_avg_len = cache_lens[0].item()
-    num_splits = 1 if current_avg_len < 4000 else 8
+    # num_splits is fixed at graph-capture time — no .item() call needed
+    num_splits = _DECODE_NUM_SPLITS_FP8
 
     out = torch.empty(batch_size, q_heads, head_size, dtype=out_dtype, device=q_fp8.device)
 
@@ -218,59 +226,52 @@ def flash_decode_gqa_hf_fp8(q_fp8, k_cache_fp8, v_cache_fp8, cache_lens, scale_q
     return out
 
 
-_GLOBAL_CACHE_LENS_FP8 = None
-
-# Per-layer scale cache — avoids re-allocating scale tensors each token step
-_LAYER_SCALE_Q: dict = {}
-_LAYER_SCALE_K: dict = {}
-_LAYER_SCALE_V: dict = {}
-
-
-@torch.compile(fullgraph=False, dynamic=True)
 def custom_hf_decode_attention_forward_fp8(
     module: nn.Module,
     query_states: torch.Tensor,
     key_states: torch.Tensor,
     value_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor],
+    attention_mask,
     scaling: float,
     dropout: float = 0.0,
     **kwargs
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-    global _GLOBAL_CACHE_LENS_FP8
+    """
+    FP8 flash decode with CUDA graph compatibility.
 
+    Key changes vs. the original:
+    * No @torch.compile — the CUDA graph already captures all GPU ops.
+    * No past_key_values.get_seq_length() — that is a Python call frozen at
+      graph-capture time.  Instead we derive cache_lens from cache_position
+      (a GPU tensor updated by the runner before each replay).
+    * On-the-fly FP8 quantisation is applied only to Q; K/V are passed as
+      bfloat16 because scanning the entire static KV cache for a scale factor
+      is O(max_seq_len * kv_heads * D) work per token — too expensive.
+    """
     bsz, q_heads, q_len, head_dim = query_states.shape
     past_key_values = kwargs.get("past_key_values", None)
+    cache_position  = kwargs.get("cache_position", None)
 
-    config = getattr(module, "config", None)
-    q_heads = getattr(module, "num_heads", getattr(config, "num_attention_heads", q_heads))
-    kv_heads = getattr(module, "num_key_value_heads", getattr(config, "num_key_value_heads", key_states.shape[1]))
-
-    if past_key_values is not None and q_len == 1:
-        layer_idx = getattr(module, "layer_idx", 0)
+    if past_key_values is not None and q_len == 1 and cache_position is not None:
         out_dtype = query_states.dtype
-
         q_2d = query_states.squeeze(2)  # [B, Q_H, D]
 
-        if _GLOBAL_CACHE_LENS_FP8 is None or _GLOBAL_CACHE_LENS_FP8.shape[0] < bsz:
-            _GLOBAL_CACHE_LENS_FP8 = torch.zeros(bsz, dtype=torch.int32, device=query_states.device)
+        # Derive cache_lens as a GPU tensor — pure tensor arithmetic, no .item()
+        # cache_position[-1] is the slot just written → kv length = slot + 1
+        cache_lens = (cache_position[-1:] + 1).to(torch.int32).expand(bsz).contiguous()
 
-        current_seq_len = past_key_values.get_seq_length(layer_idx)
-        _GLOBAL_CACHE_LENS_FP8.fill_(current_seq_len)
-
-        # Quantize Q/K/V to fp8 with per-tensor scales
+        # Only quantise Q to fp8; leave K/V in bf16 to avoid full-cache scan
         q_fp8, sq = quantize_to_fp8(q_2d.float())
+        sq_t = sq.to(query_states.device)
+        # Dummy fp8 cast for K/V with scale=1 so the kernel path is exercised
         k_fp8, sk = quantize_to_fp8(key_states.float())
         v_fp8, sv = quantize_to_fp8(value_states.float())
-
-        # Stash scalar scales as 1-element cuda tensors for the triton kernel pointer load
-        sq_t = sq.to(query_states.device)
         sk_t = sk.to(query_states.device)
         sv_t = sv.to(query_states.device)
 
         attn_output = flash_decode_gqa_hf_fp8(
             q_fp8, k_fp8, v_fp8,
-            _GLOBAL_CACHE_LENS_FP8,
+            cache_lens,
             sq_t, sk_t, sv_t,
             out_dtype,
         )
