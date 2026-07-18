@@ -1,7 +1,7 @@
 import time
 import torch
 import torch.nn.functional as F
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from typing import Optional, List
 
 import transformers.models.qwen3.modeling_qwen3 as qwen3_mod

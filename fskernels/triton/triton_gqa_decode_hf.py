@@ -104,13 +104,13 @@ def _flash_decode_gqa_hf_reduction_kernel(
     Gl_Out_Buf, Gl_L_Buf, Gl_M_Buf, Out,
     stride_wb, stride_wh, stride_ws, stride_wd,
     stride_ob, stride_oh, stride_od,
-    NUM_Q_HEADS, NUM_SPLITS: tl.constexpr, HEAD_DIM: tl.constexpr,
+    NUM_Q_HEADS, NUM_KV_HEADS, NUM_SPLITS: tl.constexpr, HEAD_DIM: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
 
     offs_d = tl.arange(0, HEAD_DIM)
-    kv_hd = hid // (NUM_Q_HEADS // tl.num_programs(1))
+    kv_hd = hid // (NUM_Q_HEADS // NUM_KV_HEADS)
     w_base = bid * stride_wb + kv_hd * stride_wh
 
     m_max = -float('inf')
@@ -203,7 +203,7 @@ def flash_decode_gqa_hf_dense_optimized(q, k_cache, v_cache, cache_lens, start_k
             _GLOBAL_SPLIT_OUT.stride(0), _GLOBAL_SPLIT_OUT.stride(1),
             _GLOBAL_SPLIT_OUT.stride(2), _GLOBAL_SPLIT_OUT.stride(3),
             out.stride(0), out.stride(1), out.stride(2),
-            NUM_Q_HEADS=q_heads, NUM_SPLITS=num_splits, HEAD_DIM=head_size,
+            NUM_Q_HEADS=q_heads, NUM_KV_HEADS=kv_heads, NUM_SPLITS=num_splits, HEAD_DIM=head_size,
             num_warps=4,
         )
 

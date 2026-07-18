@@ -114,13 +114,13 @@ def _flash_decode_gqa_hf_fp8_reduction_kernel(
     Gl_Out_Buf, Gl_L_Buf, Gl_M_Buf, Out,
     stride_wb, stride_wh, stride_ws, stride_wd,
     stride_ob, stride_oh, stride_od,
-    NUM_Q_HEADS, NUM_SPLITS: tl.constexpr, HEAD_DIM: tl.constexpr,
+    NUM_Q_HEADS, NUM_KV_HEADS, NUM_SPLITS: tl.constexpr, HEAD_DIM: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
 
     offs_d = tl.arange(0, HEAD_DIM)
-    kv_hd = hid // (NUM_Q_HEADS // tl.num_programs(1))
+    kv_hd = hid // (NUM_Q_HEADS // NUM_KV_HEADS)
     w_base = bid * stride_wb + kv_hd * stride_wh
 
     m_max = -float('inf')
@@ -195,7 +195,7 @@ def flash_decode_gqa_hf_fp8(q_fp8, k_cache_fp8, v_cache_fp8, cache_lens, scale_q
                 (batch_size, kv_heads, num_splits, q_heads, head_size), dtype=out_dtype, device=q_fp8.device
             )
             _GLOBAL_SPLIT_L_FP8 = torch.zeros((batch_size, q_heads * num_splits), dtype=torch.float32, device=q_fp8.device)
-            _GLOBAL_SPLIT_M_FP8 = torch.zeros((batch_size, q_heads * num_splits), dtype=torch.float32, device=q_fp8.device)
+            _GLOBAL_SPLIT_M_FP8 = torch.full((batch_size, q_heads * num_splits), float('-inf'), dtype=torch.float32, device=q_fp8.device)
 
         grid_p1 = (batch_size, kv_heads, num_splits)
         _flash_decode_gqa_hf_fp8_dense_kernel[grid_p1](
@@ -219,7 +219,7 @@ def flash_decode_gqa_hf_fp8(q_fp8, k_cache_fp8, v_cache_fp8, cache_lens, scale_q
             _GLOBAL_SPLIT_OUT_FP8.stride(0), _GLOBAL_SPLIT_OUT_FP8.stride(1),
             _GLOBAL_SPLIT_OUT_FP8.stride(2), _GLOBAL_SPLIT_OUT_FP8.stride(3),
             out.stride(0), out.stride(1), out.stride(2),
-            NUM_Q_HEADS=q_heads, NUM_SPLITS=num_splits, HEAD_DIM=head_size,
+            NUM_Q_HEADS=q_heads, NUM_KV_HEADS=kv_heads, NUM_SPLITS=num_splits, HEAD_DIM=head_size,
             num_warps=4,
         )
 
