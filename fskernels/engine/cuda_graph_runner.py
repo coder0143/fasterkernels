@@ -57,12 +57,28 @@ class CUDAGraphCache:
     def update(self, key_states: torch.Tensor, value_states: torch.Tensor,
                layer_idx: int, cache_kwargs=None):
         """
-        key_states / value_states: [B, KV_H, 1, D] during decode.
-        index_copy_ scatters them into slot self._pos along the seq dim.
-        Returns the full static cache [B, KV_H, max_len, D] for flash decode.
+        key_states / value_states: [B, KV_H, q_len, D] during decode or verification.
+        index_copy_ scatters them into slots along the seq dim.
         """
-        self.key_cache[layer_idx].index_copy_(2, self._pos, key_states)
-        self.value_cache[layer_idx].index_copy_(2, self._pos, value_states)
+        cache_position = None
+        if cache_kwargs is not None:
+            if isinstance(cache_kwargs, dict):
+                cache_position = cache_kwargs.get("cache_position", None)
+            elif hasattr(cache_kwargs, "cache_position"):
+                cache_position = cache_kwargs.cache_position
+
+        # Fallback if key_states has > 1 tokens but we have no cache_position
+        if cache_position is None and key_states.size(2) > 1:
+            pos = int(self._pos.item())
+            cache_position = torch.arange(pos, pos + key_states.size(2), device=key_states.device)
+
+        if cache_position is not None:
+            self.key_cache[layer_idx].index_copy_(2, cache_position, key_states)
+            self.value_cache[layer_idx].index_copy_(2, cache_position, value_states)
+        else:
+            self.key_cache[layer_idx].index_copy_(2, self._pos, key_states)
+            self.value_cache[layer_idx].index_copy_(2, self._pos, value_states)
+
         return self.key_cache[layer_idx], self.value_cache[layer_idx]
 
     def get_seq_length(self, layer_idx: int = 0) -> int:

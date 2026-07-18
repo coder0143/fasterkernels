@@ -71,7 +71,7 @@ class SpeculativeEngine:
             target_id, dtype="auto", device_map=device
         ).eval()
         draft = AutoModelForCausalLM.from_pretrained(
-            draft_id, torch_dtype=torch.bfloat16, device_map=device
+            draft_id, dtype=torch.bfloat16, device_map=device
         ).eval()
         return cls(target, draft, tok, device=device, **kw)
 
