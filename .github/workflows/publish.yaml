@@ -1,4 +1,4 @@
-name: FasterKernels to pypi
+name: Publish to PyPI 🚀
 
 on:
   release:
