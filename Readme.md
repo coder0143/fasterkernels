@@ -100,6 +100,11 @@ pip install -e ".[benchmarks]"
 pip install -e ".[dev]"
 ```
 
+Or you can simply do:
+```
+pip install fasterkernels
+```
+
 ---
 
 ## Usage Examples
