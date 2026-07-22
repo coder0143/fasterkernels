@@ -71,38 +71,6 @@ Below are benchmarking results evaluated on an **NVIDIA L4 GPU** (24GB VRAM, sm_
 | **CUDA Graph Decode** | 22.18 | 45.08 | 3.85x |
 | **Paged Attention (Batch=4)** | 99.54 | 40.19 | 17.28x |
 
-*Execution speedups for fp8 models*:
-```
-1. Model - Qwen/Qwen3-8B-FP8
-
-* Cuda graphs -
-Tokens Generated : 400
-Time Taken       : 15.90 seconds
-Throughput       : 25.16 tokens/sec
-Latency per token: 39.75 ms/token
-
-* Hf torch compile baseline -
-Tokens Generated : 400
-Time Taken       : 60.28 s
-Throughput       : 6.64 tok/s
-Latency/token    : 150.69 ms
-
-
-2. Model - Qwen/Qwen3-14B-FP8
-
-* Cuda graphs -
-Tokens Generated : 400
-Time Taken       : 26.69 seconds
-Throughput       : 14.99 tokens/sec
-Latency per token: 66.72 ms/token
-
-* Hf torch compile baseline -
-Tokens Generated : 400
-Time Taken       : 67.31 s
-Throughput       : 5.94 tok/s
-Latency/token    : 168.27 ms
-```
-
 ### Key Optimization Insights
 * **Triton/TileLang vs. PyTorch SDPA**: Triton and TileLang are **15x - 18x faster** than PyTorch SDPA at larger batch sizes and context lengths.
 * **Why is Native CUDA slower?**: The native CUDA implementation included is a template-free cooperative parallel reduction kernel. Unlike Triton and TileLang, it does not utilize specialized CUDA Tensor Cores or compiler-optimized double-buffered pipelines (`cp.async`).
