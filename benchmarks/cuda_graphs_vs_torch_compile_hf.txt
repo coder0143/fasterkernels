@@ -1,0 +1,28 @@
+1. Model - Qwen/Qwen3-8B-FP8
+
+* Cuda graphs -
+Tokens Generated : 400
+Time Taken       : 15.90 seconds
+Throughput       : 25.16 tokens/sec
+Latency per token: 39.75 ms/token
+
+* Hf torch compile baseline -
+Tokens Generated : 400
+Time Taken       : 60.28 s
+Throughput       : 6.64 tok/s
+Latency/token    : 150.69 ms
+
+
+2. Model - Qwen/Qwen3-14B-FP8
+
+* Cuda graphs -
+Tokens Generated : 400
+Time Taken       : 26.69 seconds
+Throughput       : 14.99 tokens/sec
+Latency per token: 66.72 ms/token
+
+* Hf torch compile baseline -
+Tokens Generated : 400
+Time Taken       : 67.31 s
+Throughput       : 5.94 tok/s
+Latency/token    : 168.27 ms
