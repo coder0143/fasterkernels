@@ -78,7 +78,7 @@ Below are benchmarking results evaluated on an **NVIDIA L4 GPU** (24GB VRAM, sm_
 * Cuda graphs -
 Tokens Generated : 400
 Time Taken       : 15.90 seconds
-Throughput       : 25.16 tokens/sec
+Throughput       : 25.16 tokens/sec ~4x speedup
 Latency per token: 39.75 ms/token
 
 * Hf torch compile baseline -
@@ -93,7 +93,7 @@ Latency/token    : 150.69 ms
 * Cuda graphs -
 Tokens Generated : 400
 Time Taken       : 26.69 seconds
-Throughput       : 14.99 tokens/sec
+Throughput       : 14.99 tokens/sec ~2.6x speedup 
 Latency per token: 66.72 ms/token
 
 * Hf torch compile baseline -
