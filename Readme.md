@@ -1,5 +1,7 @@
 # FasterKernels ⚡ (v0.2.0)
 
+![bench_fp8_sm89](benchmarks/fp8_bench.png)
+
 A collection of open, highly-optimized attention and decoding kernels for AI inference implemented using **Triton**, **TileLang**, and **CUDA / C++**. 
 
 Starting in **v0.2.0**, FasterKernels introduces first-class end-to-end inference engine integrations for Hugging Face models. The package now features optimized **FP8 e4m3 decoding pipelines** (tested with Qwen3-8B-FP8), custom **CUDA Graph capture runners** for zero-overhead autoregressive inference, and a dynamic **Paged Attention block allocator** (`PagedKVCache` + `paged_flash_decode`) to scale concurrent sequence throughput.
